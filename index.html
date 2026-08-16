@@ -63,8 +63,10 @@
   section { margin-bottom:26px; }
   #idle-details summary { cursor:pointer; list-style:none; }
   #idle-details summary::-webkit-details-marker { display:none; }
-  #idle-details summary h2::before { content:'▸'; font-size:9px; color:var(--dim); }
-  #idle-details[open] summary h2::before { content:'▾'; }
+  #idle-details summary h2::before { content:'▶'; font-size:8px; color:var(--text);
+    width:12px; height:12px; display:inline-flex; align-items:center; justify-content:center;
+    background:var(--surface2); border-radius:3px; padding:1px; transition:transform 0.15s; }
+  #idle-details[open] summary h2::before { transform:rotate(90deg); }
 
   /* sessions */
   .card { background:var(--surface); border:1px solid var(--line); border-radius:12px;
