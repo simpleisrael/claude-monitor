@@ -1,0 +1,8 @@
+# runtime data — created by the daemon, machine-specific
+config.json
+state.json
+limits.json
+actions.log
+daemon.log
+history.jsonl*
+.DS_Store

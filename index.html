@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Monitor</title>
+<style>
+  :root {
+    --bg:#0b0e13; --surface:#12161d; --surface2:#171c25; --line:#232a35;
+    --fg:#e8edf4; --dim:#95a0ae; --faint:#5c6773;
+    --ok:#3fb950; --warn:#d9a53a; --bad:#f0555a; --accent:#5ba3f5;
+  }
+  * { box-sizing:border-box; margin:0; }
+  html { color-scheme:dark; }
+  body { background:var(--bg); color:var(--fg);
+         font:14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         padding:28px 24px 64px; max-width:1140px; margin:0 auto; }
+  .num { font-family:ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+         font-variant-numeric:tabular-nums; }
+
+  /* header */
+  header { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 14px; margin-bottom:18px; }
+  header h1 { font-size:17px; font-weight:650; letter-spacing:-0.02em; white-space:nowrap; }
+  header .meta { color:var(--dim); font-size:12.5px; }
+  header .right { margin-left:auto; display:flex; align-items:center; gap:10px; font-size:12.5px; color:var(--dim); }
+  .mode { font-size:11px; font-weight:600; letter-spacing:0.04em; padding:2.5px 9px; border-radius:5px; }
+  .mode.dry { color:var(--warn); background:color-mix(in srgb, var(--warn) 12%, transparent); }
+  .mode.armed { color:var(--ok); background:color-mix(in srgb, var(--ok) 12%, transparent); }
+
+  /* usage band */
+  .band { background:var(--surface); border:1px solid var(--line); border-radius:12px;
+          padding:18px 22px 16px; margin-bottom:22px; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(128px, 1fr)); gap:16px 22px; }
+  .kpi { display:flex; flex-direction:column; gap:3px; min-width:0; }
+  .kpi .k { color:var(--faint); font-size:11px; font-weight:600; text-transform:uppercase;
+            letter-spacing:0.06em; white-space:nowrap; }
+  .kpi .v { font-size:23px; font-weight:650; letter-spacing:-0.02em; line-height:1.15; }
+  .kpi .s { color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .kpi + .kpi { border-left:1px solid var(--line); padding-left:22px; }
+  @media (max-width:900px) { .kpi + .kpi { border-left:none; padding-left:0; } }
+  .limits { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:6px 28px;
+    margin-top:18px; }
+  .lim .t { display:flex; justify-content:space-between; align-items:baseline; font-size:12.5px; }
+  .lim .t .pv { font-weight:650; font-size:13.5px; }
+  .lim .bar { margin-top:6px; }
+  .lim .rs { color:var(--dim); font-size:11px; margin-top:5px; }
+  .lim.ok .bar i { background:var(--accent); }
+  .band-track { margin-top:14px; height:4px; border-radius:2px; background:var(--surface2);
+                overflow:hidden; }
+  .band-track i { display:block; height:100%; width:100%; background:var(--accent); border-radius:2px;
+                  transform-origin:left; transform:scaleX(0);
+                  transition:transform 0.8s cubic-bezier(0.16,1,0.3,1); }
+  .band-sub { display:flex; justify-content:space-between; margin-top:7px;
+              color:var(--faint); font-size:11.5px; }
+
+  /* layout */
+  .cols { display:grid; grid-template-columns: 1fr 340px; gap:22px; align-items:start; }
+  @media (max-width: 900px) { .cols { grid-template-columns:1fr; } body { padding:20px 14px 48px; } }
+  h2 { font-size:11.5px; font-weight:600; color:var(--faint); text-transform:uppercase;
+       letter-spacing:0.07em; margin:0 0 10px 2px; display:flex; align-items:center; gap:8px; }
+  h2 button:first-of-type { margin-left:auto; }
+  h2 .count { color:var(--dim); font-weight:600; }
+  section { margin-bottom:26px; }
+
+  /* sessions */
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:12px;
+          padding:13px 16px 14px; margin-bottom:10px; }
+  .row { display:flex; align-items:center; gap:10px; min-width:0; }
+  .dot { width:7px; height:7px; border-radius:50%; background:var(--faint); flex:none; }
+  .dot.active { background:var(--ok); }
+  .dot.active::after { content:''; display:block; width:7px; height:7px; border-radius:50%;
+                       background:var(--ok); animation:ping 2.4s cubic-bezier(0,0,0.2,1) infinite; }
+  @keyframes ping { 0% {transform:scale(1); opacity:0.7} 70%,100% {transform:scale(2.6); opacity:0} }
+  .proj { font-weight:600; font-size:13.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .chip { font-size:11px; color:var(--dim); background:var(--surface2); border-radius:5px;
+          padding:1.5px 7px; flex:none; }
+  .pct { margin-left:auto; font-size:16px; font-weight:650; flex:none; }
+  .warn .pct { color:var(--warn); } .bad .pct { color:var(--bad); }
+  .bar { height:5px; background:var(--surface2); border-radius:2.5px; margin-top:10px;
+         overflow:visible; position:relative; }
+  .bar i { display:block; height:100%; width:100%; border-radius:2.5px; background:var(--ok);
+           transform-origin:left; transition:transform 0.8s cubic-bezier(0.16,1,0.3,1); }
+  .warn .bar i { background:var(--warn); } .bad .bar i { background:var(--bad); }
+  .bar b { position:absolute; top:-2px; bottom:-2px; width:1.5px; background:var(--dim); opacity:0.55; }
+  .sess-meta { display:flex; align-items:center; gap:8px; margin-top:9px;
+               color:var(--dim); font-size:12px; min-width:0; }
+  .sess-meta .grow { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .spark { width:96px; height:22px; flex:none; margin-left:auto; opacity:0.9; }
+  .spark polyline { fill:none; stroke:var(--accent); stroke-width:1.5; vector-effect:non-scaling-stroke; }
+
+  /* right rail */
+  .prow { background:var(--surface); border:1px solid var(--line); border-radius:12px;
+          padding:12px 14px; margin-bottom:10px; font-size:12.5px; }
+  .prow .head { display:flex; align-items:center; gap:10px; margin-bottom:9px; }
+  .prow .proj { flex:1; }
+  .prow label { color:var(--dim); display:flex; align-items:center; gap:6px; }
+  .prow .controls { display:flex; align-items:center; gap:14px; }
+  input[type=number], input[type=text] {
+    background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:6px;
+    padding:3px 8px; font:inherit; font-size:12px; }
+  input[type=number] { width:54px; text-align:right; }
+  input[type=text] { width:100%; margin-top:9px; }
+  input[type=checkbox] { accent-color:var(--ok); }
+  input:focus-visible, button:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+  ::placeholder { color:var(--faint); }
+  button { background:var(--surface2); color:var(--dim); border:1px solid var(--line);
+           border-radius:6px; padding:3px 10px; font:inherit; font-size:11.5px; cursor:pointer; }
+  button:hover { color:var(--fg); border-color:var(--faint); }
+  button[aria-pressed="true"] { color:var(--fg); background:var(--line); }
+  pre { background:var(--surface); border:1px solid var(--line); border-radius:12px;
+        padding:12px 14px; font-size:11px; line-height:1.7; overflow:auto; color:var(--dim);
+        max-height:230px; }
+
+  /* usage table */
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  th { text-align:left; color:var(--faint); font-weight:500; padding:4px 10px 8px 0; }
+  td { padding:4.5px 10px 4.5px 0; border-top:1px solid var(--line); }
+  .r { text-align:right; }
+  tr.total td { font-weight:650; }
+  .empty { color:var(--faint); padding:22px; text-align:center; background:var(--surface);
+           border:1px solid var(--line); border-radius:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Claude Monitor</h1>
+  <span class="meta" id="hdr-meta">connecting…</span>
+  <div class="right"><span id="mode" class="mode dry">DRY RUN</span><span id="updated"></span></div>
+</header>
+
+<div class="band">
+  <div class="kpis">
+    <div class="kpi"><span class="k">5-hour block</span><span class="v num" id="blk-cost">—</span>
+      <span class="s num" id="blk-proj"></span></div>
+    <div class="kpi"><span class="k">burn rate</span><span class="v num" id="blk-burn">—</span>
+      <span class="s num" id="blk-burn-tok"></span></div>
+    <div class="kpi"><span class="k">block tokens</span><span class="v num" id="blk-tok">—</span>
+      <span class="s num" id="blk-tok-sub"></span></div>
+    <div class="kpi"><span class="k">today</span><span class="v num" id="u-today">—</span>
+      <span class="s num" id="u-today-tok"></span></div>
+    <div class="kpi"><span class="k">this week</span><span class="v num" id="u-week">—</span>
+      <span class="s num" id="u-week-tok"></span></div>
+    <div class="kpi"><span class="k">last week</span><span class="v num" id="u-lastweek">—</span>
+      <span class="s num" id="u-lastweek-tok"></span></div>
+  </div>
+  <div class="limits" id="limits"></div>
+  <div class="band-track"><i id="blk-track"></i></div>
+  <div class="band-sub"><span id="blk-started"></span><span id="blk-resets">block data loading…</span></div>
+</div>
+
+<div class="cols">
+  <div>
+    <section>
+      <h2>Active sessions <span class="count num" id="n-active"></span></h2>
+      <div id="active-sessions"><div class="empty">waiting for first scan…</div></div>
+    </section>
+    <section>
+      <h2>Idle sessions <span class="count num" id="n-idle"></span></h2>
+      <div id="idle-sessions"><div class="empty">–</div></div>
+    </section>
+    <section>
+      <h2>Usage history
+        <button id="tab-daily" aria-pressed="true" onclick="setTab('daily')">daily</button>
+        <button id="tab-weekly" aria-pressed="false" onclick="setTab('weekly')">weekly</button>
+      </h2>
+      <div id="ccusage" class="empty">loading… first run downloads ccusage</div>
+    </section>
+  </div>
+  <div>
+    <section>
+      <h2>Projects</h2>
+      <div id="projects"><div class="empty">–</div></div>
+    </section>
+    <section>
+      <h2>Actions</h2>
+      <pre id="log">–</pre>
+    </section>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let lastSnap = null, history = [], dailyRows = [], tab = 'daily';
+
+/* ---------- sessions ---------- */
+function sparkline(sid) {
+  const pts = history.map(h => [h.t, h.s[sid]]).filter(p => p[1] !== undefined);
+  if (pts.length < 2) return '';
+  const t0 = pts[0][0], t1 = pts[pts.length - 1][0];
+  const max = Math.max(...pts.map(p => p[1]), 1);
+  const xy = pts.map(p =>
+    `${(100 * (p[0] - t0) / Math.max(1, t1 - t0)).toFixed(1)},${(21 - 18 * p[1] / max).toFixed(1)}`).join(' ');
+  return `<svg class="spark" viewBox="0 0 100 22" preserveAspectRatio="none" role="img"
+    aria-label="context trend"><polyline points="${xy}"/></svg>`;
+}
+function burnRate(sid) {
+  const cut = Date.now() - 3600e3;
+  const pts = history.filter(h => h.t >= cut).map(h => [h.t, h.s[sid]]).filter(p => p[1] !== undefined);
+  if (pts.length < 2) return '';
+  const dtH = (pts[pts.length - 1][0] - pts[0][0]) / 3600e3;
+  if (dtH < 0.05) return '';
+  const rate = (pts[pts.length - 1][1] - pts[0][1]) / dtH;
+  return Math.abs(rate) > 1000 ? ` · ${rate > 0 ? '+' : '−'}${Math.round(Math.abs(rate) / 1000)}k tok/h` : '';
+}
+function shortProj(p) { return p.split('-').slice(-3).join('-'); }
+
+function render(snap) {
+  lastSnap = snap;
+  const cfg = snap.config;
+  $('hdr-meta').textContent =
+    `${snap.sessions.length} sessions · compact ≥${cfg.compactThresholdPct}% · idle ${cfg.idleMinutes}m`;
+  $('mode').textContent = cfg.dryRun ? 'DRY RUN' : 'ARMED';
+  $('mode').className = 'mode ' + (cfg.dryRun ? 'dry' : 'armed');
+  $('updated').textContent = new Date(snap.at).toLocaleTimeString();
+  renderProjects(snap);
+
+  const act = snap.sessions.filter(s => s.active);
+  const idl = snap.sessions.filter(s => !s.active);
+  $('n-active').textContent = act.length || '';
+  $('n-idle').textContent = idl.length || '';
+  $('active-sessions').innerHTML = act.length ? act.map(sessionCard).join('')
+    : '<div class="empty">No active sessions — all quiet</div>';
+  $('idle-sessions').innerHTML = idl.length ? idl.map(sessionCard).join('')
+    : `<div class="empty">No idle sessions in the last ${cfg.staleHours}h</div>`;
+
+  function sessionCard(s) {
+    const th = ((cfg.perProject[s.project] || {}).compactThresholdPct) || cfg.compactThresholdPct;
+    const cls = s.pct >= th ? 'bad' : s.pct >= th * 0.75 ? 'warn' : '';
+    const idle = Math.round((snap.at - s.mtimeMs) / 60000);
+    const idleTxt = s.active ? 'active' : idle < 60 ? `idle ${idle}m` : `idle ${Math.round(idle / 60)}h`;
+    return `<div class="card ${cls}">
+      <div class="row">
+        <span class="dot ${s.active ? 'active' : ''}"></span>
+        <span class="proj" title="${s.project}">${shortProj(s.project)}</span>
+        <span class="chip num">${(s.model || '?').replace('claude-', '')}</span>
+        ${s.compacted ? '<span class="chip">compacted</span>' : ''}
+        <span class="pct num">${s.pct.toFixed(1)}%</span>
+      </div>
+      <div class="bar"><i style="transform:scaleX(${Math.min(1, s.pct / 100).toFixed(3)})"></i><b style="left:${th}%"></b></div>
+      <div class="sess-meta">
+        <span class="grow num">${s.tokens.toLocaleString()} / ${(s.window / 1000).toFixed(0)}k tok
+          · ${idleTxt}${burnRate(s.sessionId)} · ${s.sessionId.slice(0, 8)}</span>
+        ${sparkline(s.sessionId)}
+      </div>
+    </div>`;
+  }
+}
+
+/* ---------- projects rail ---------- */
+function renderProjects(snap) {
+  if ($('projects').contains(document.activeElement)) return; /* don't clobber while editing */
+  const pp = snap.config.perProject || {};
+  const projs = [...new Set(snap.sessions.map(s => s.project))];
+  if (!projs.length) { $('projects').innerHTML = '<div class="empty">–</div>'; return; }
+  $('projects').innerHTML = projs.map(p => {
+    const o = pp[p] || {};
+    return `<div class="prow">
+      <div class="head">
+        <span class="proj" title="${p}">${shortProj(p)}</span>
+      </div>
+      <div class="controls">
+        <label>compact ≥ <input type="number" min="10" max="100" placeholder="${snap.config.compactThresholdPct}"
+          value="${o.compactThresholdPct ?? ''}" onchange="setProj('${p}', {compactThresholdPct: this.value})">%</label>
+        <label><input type="checkbox" ${o.disabled ? '' : 'checked'}
+          onchange="setProj('${p}', {disabled: !this.checked})"> auto-compact</label>
+      </div>
+      <input type="text" placeholder="compact instructions, e.g. keep decisions + file paths"
+        value="${(o.compactPrompt || '').replace(/"/g, '&quot;')}"
+        onchange="setProj('${p}', {compactPrompt: this.value})">
+    </div>`;
+  }).join('');
+}
+function setProj(project, patch) {
+  const o = ((lastSnap && lastSnap.config.perProject) || {})[project] || {};
+  fetch('/api/config', { method: 'POST', body: JSON.stringify({
+    project,
+    compactThresholdPct: 'compactThresholdPct' in patch ? patch.compactThresholdPct : (o.compactThresholdPct ?? null),
+    disabled: 'disabled' in patch ? patch.disabled : !!o.disabled,
+    compactPrompt: 'compactPrompt' in patch ? patch.compactPrompt : (o.compactPrompt || '')
+  }) });
+}
+
+/* ---------- usage band ---------- */
+function loadBlocks() {
+  fetch('/api/blocks').then(r => r.json()).then(j => {
+    const blocks = Array.isArray(j) ? j : (j.blocks || []);
+    const act = blocks.find(b => b.isActive);
+    if (!act) { $('blk-resets').textContent = j.error ? 'ccusage unavailable: ' + j.error : 'no active block'; return; }
+    const start = new Date(act.startTime), end = new Date(act.endTime);
+    const mins = Math.max(0, Math.round((end - Date.now()) / 60000));
+    const elapsed = Math.min(100, 100 * (Date.now() - start) / (end - start));
+    const tokens = act.totalTokens ||
+      Object.values(act.tokenCounts || {}).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0);
+    $('blk-cost').textContent = fmtUSD(act.costUSD);
+    $('blk-proj').textContent = act.projection ? 'projected ' + fmtUSD(act.projection.totalCost) : '';
+    $('blk-burn').textContent = act.burnRate ? fmtUSD(act.burnRate.costPerHour) + '/h' : '—';
+    $('blk-burn-tok').textContent = act.burnRate ? Math.round(act.burnRate.tokensPerMinute / 1000) + 'k tok/min' : '';
+    $('blk-tok').textContent = fmtTok(tokens);
+    $('blk-tok-sub').textContent = (act.entries || 0) + ' requests';
+    $('blk-track').style.transform = `scaleX(${(elapsed / 100).toFixed(4)})`;
+    $('blk-started').textContent = 'block started ' +
+      start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    $('blk-resets').textContent = `resets in ${Math.floor(mins / 60)}h ${mins % 60}m`;
+  }).catch(() => { $('blk-resets').textContent = 'block data unavailable'; });
+}
+/* Real rate-limit bars (what /usage shows) via the daemon's /api/limits */
+function loadLimits() {
+  fetch('/api/limits').then(r => r.json()).then(j => {
+    const rows = j.limits || [];
+    if (!rows.length) {
+      if (j.error) $('limits').innerHTML = `<div class="empty">limits unavailable: ${j.error}</div>`;
+      return;
+    }
+    const label = l => l.kind === 'session' ? 'Session (5h)'
+      : l.kind === 'weekly_all' ? 'Weekly (7 day)'
+      : 'Weekly ' + (l.scope?.model?.display_name || l.kind.replace('weekly_', ''));
+    const cls = l => l.severity === 'critical' || l.percent >= 90 ? 'bad'
+      : l.severity === 'warning' || l.percent >= 75 ? 'warn' : 'ok';
+    const resetIn = iso => {
+      const m = Math.max(0, Math.round((new Date(iso) - Date.now()) / 60000));
+      return m >= 1440 ? `${Math.floor(m / 1440)}d ${Math.floor(m % 1440 / 60)}h`
+        : m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
+    };
+    const resetAt = l => ' · ' + new Date(l.resets_at).toLocaleString([], l.group === 'weekly'
+      ? { weekday: 'short', hour: 'numeric', minute: '2-digit' }
+      : { hour: 'numeric', minute: '2-digit' });
+    $('limits').innerHTML = rows.map(l => `<div class="lim ${cls(l)}">
+      <div class="t"><span>${label(l)}</span><span class="pv num">${l.percent}%</span></div>
+      <div class="bar"><i style="transform:scaleX(${(Math.min(100, l.percent) / 100).toFixed(3)})"></i></div>
+      <div class="rs">resets in ${resetIn(l.resets_at)}${resetAt(l)}</div></div>`).join('');
+  }).catch(() => {});
+}
+
+/* ---------- usage history: daily + weekly ---------- */
+const cost = d => d.totalCost ?? (d.modelBreakdowns || []).reduce((a, m) => a + (m.cost || 0), 0);
+const toks = d => d.totalTokens ?? ['inputTokens', 'outputTokens', 'cacheCreationTokens', 'cacheReadTokens']
+  .reduce((a, k) => a + (d[k] || 0), 0);
+const day = d => d.period || d.date || '';
+
+function weekStart(iso) { /* Monday of the ISO date's week */
+  const d = new Date(iso + 'T00:00:00');
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+}
+function weeklyRows(days) {
+  const map = new Map();
+  for (const d of days) {
+    if (!day(d)) continue;
+    const wk = weekStart(day(d));
+    const w = map.get(wk) || { period: wk, days: 0, cost: 0, toks: 0, out: 0, models: new Set() };
+    w.days++; w.cost += cost(d); w.toks += toks(d); w.out += d.outputTokens || 0;
+    (d.modelBreakdowns || []).forEach(m => w.models.add((m.modelName || '').replace('claude-', '')));
+    map.set(wk, w);
+  }
+  return [...map.values()].sort((a, b) => a.period < b.period ? 1 : -1);
+}
+function fmtDate(iso) {
+  return new Date(iso + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+function setTab(t) {
+  tab = t;
+  $('tab-daily').setAttribute('aria-pressed', String(t === 'daily'));
+  $('tab-weekly').setAttribute('aria-pressed', String(t === 'weekly'));
+  renderUsage();
+}
+function renderUsage() {
+  if (!dailyRows.length) return;
+  if (tab === 'daily') {
+    const days = dailyRows.slice(-14).reverse();
+    const rows = days.map(d =>
+      `<tr><td class="num">${fmtDate(day(d))}</td>
+        <td>${(d.modelBreakdowns || []).map(m => (m.modelName || '').replace('claude-', '')).join(', ')}</td>
+        <td class="num r">${((d.outputTokens || 0) / 1000).toFixed(0)}k</td>
+        <td class="num r">${(toks(d) / 1e6).toFixed(1)}M</td>
+        <td class="num r">${fmtUSD(cost(d))}</td></tr>`).join('');
+    const sum = days.reduce((a, d) => a + cost(d), 0);
+    $('ccusage').outerHTML = tableShell(rows,
+      `<tr class="total"><td colspan="4">last ${days.length} days</td><td class="num r">${fmtUSD(sum)}</td></tr>`);
+  } else {
+    const weeks = weeklyRows(dailyRows).slice(0, 10);
+    const rows = weeks.map(w =>
+      `<tr><td class="num">wk of ${fmtDate(w.period)}</td>
+        <td>${[...w.models].join(', ')}</td>
+        <td class="num r">${(w.out / 1000).toFixed(0)}k</td>
+        <td class="num r">${(w.toks / 1e6).toFixed(1)}M</td>
+        <td class="num r">${fmtUSD(w.cost)}</td></tr>`).join('');
+    const sum = weeks.reduce((a, w) => a + w.cost, 0);
+    $('ccusage').outerHTML = tableShell(rows,
+      `<tr class="total"><td colspan="4">${weeks.length} weeks</td><td class="num r">${fmtUSD(sum)}</td></tr>`);
+  }
+}
+function tableShell(rows, totalRow) {
+  return `<div id="ccusage"><table>
+    <tr><th>period</th><th>models</th><th class="r">output</th><th class="r">total tok</th><th class="r">cost</th></tr>
+    ${rows}${totalRow}</table></div>`;
+}
+function loadCcusage() {
+  fetch('/api/ccusage').then(r => r.json()).then(j => {
+    dailyRows = j.daily || [];
+    if (!dailyRows.length) {
+      $('ccusage').textContent = j.error ? 'ccusage unavailable: ' + j.error : 'no usage data yet'; return;
+    }
+    renderUsage();
+    fillBandTotals();
+  }).catch(() => { $('ccusage').textContent = 'usage history unavailable'; });
+}
+function fmtTok(n) {
+  return n >= 1e9 ? (n / 1e9).toFixed(2) + 'B'
+    : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : Math.round(n / 1000) + 'k';
+}
+function fmtUSD(n) {
+  return (n || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+}
+function fillBandTotals() {
+  const today = new Date().toISOString().slice(0, 10);
+  const wkNow = weekStart(today);
+  const lastWk = weekStart(new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10));
+  const sums = { t: [0, 0], w: [0, 0], lw: [0, 0] };
+  for (const d of dailyRows) {
+    const wk = day(d) && weekStart(day(d));
+    if (day(d) === today) { sums.t[0] += cost(d); sums.t[1] += toks(d); }
+    if (wk === wkNow) { sums.w[0] += cost(d); sums.w[1] += toks(d); }
+    if (wk === lastWk) { sums.lw[0] += cost(d); sums.lw[1] += toks(d); }
+  }
+  const put = (id, [c, t]) => {
+    $(id).textContent = fmtUSD(c);
+    $(id + '-tok').textContent = t ? fmtTok(t) + ' tok' : '';
+  };
+  put('u-today', sums.t); put('u-week', sums.w); put('u-lastweek', sums.lw);
+}
+
+/* ---------- log + stream ---------- */
+function loadLog() { fetch('/api/log').then(r => r.text()).then(t => { $('log').textContent = t.trim() || '–'; }); }
+new EventSource('/events').onmessage = e => {
+  const snap = JSON.parse(e.data);
+  fetch('/api/history').then(r => r.json()).then(h => { history = h; render(snap); loadLog(); })
+    .catch(() => { render(snap); loadLog(); });
+  loadBlocks(); loadLimits();
+};
+loadBlocks(); loadLimits();
+loadCcusage();
+setInterval(loadCcusage, 300e3); /* daily/weekly refresh matches server cache */
+</script>
+</body>
+</html>
