@@ -61,6 +61,10 @@
   h2 button:first-of-type { margin-left:auto; }
   h2 .count { color:var(--dim); font-weight:600; }
   section { margin-bottom:26px; }
+  #idle-details summary { cursor:pointer; list-style:none; }
+  #idle-details summary::-webkit-details-marker { display:none; }
+  #idle-details summary h2::before { content:'▸'; font-size:9px; color:var(--dim); }
+  #idle-details[open] summary h2::before { content:'▾'; }
 
   /* sessions */
   .card { background:var(--surface); border:1px solid var(--line); border-radius:12px;
@@ -155,8 +159,10 @@
       <div id="active-sessions"><div class="empty">waiting for first scan…</div></div>
     </section>
     <section>
-      <h2>Idle sessions <span class="count num" id="n-idle"></span></h2>
-      <div id="idle-sessions"><div class="empty">–</div></div>
+      <details id="idle-details">
+        <summary><h2>Idle sessions <span class="count num" id="n-idle"></span></h2></summary>
+        <div id="idle-sessions"><div class="empty">–</div></div>
+      </details>
     </section>
     <section>
       <h2>Usage history
